@@ -648,7 +648,7 @@ function processImport(jsonString) {
     const existingNames = new Set(recipes.map(r => r.name.trim().toLowerCase()));
     const newRecipes = imp
       .filter(r => !existingNames.has(r.name.trim().toLowerCase()))
-      .map((r, i) => ({ ...r, id: (Date.now() + i * 1000).toString(), createdat: r.createdat || new Date().toISOString() }));
+      .map((r, i) => ({ ...r, id: (Date.now() + i * 1000).toString(), createdat: r.createdat || new Date().toISOString(), photourl: r.photourl || '' }));
     if (!newRecipes.length) { showToast('All recipes in that file already exist.', false); return; }
     recipes = [...newRecipes, ...recipes];
     render();
@@ -673,9 +673,7 @@ async function saveImportedToSheet(newRecipes) {
   let saved = 0, failed = 0;
   for (const recipe of newRecipes) {
     try {
-      const recipeForSheet = { ...recipe };
-      delete recipeForSheet.photo;
-      await apiCall({ action: 'saveRecipe', data: recipeForSheet });
+      await apiCall({ action: 'saveRecipe', data: recipe });
       saved++;
       setStatus(`Saving to Sheet... ${saved} of ${newRecipes.length} done`, false);
     } catch (e) {
@@ -850,8 +848,8 @@ function render() {
         ${r.category ? `<span class="tag tag-cat">${r.category}</span>` : ''}
         ${r.occasion ? `<span class="tag tag-occasion">&#127881; ${r.occasion}</span>` : ''}
       </div>
-      ${r.photo ? `<img src="${r.photo}" alt="${r.name}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin-bottom:0.5rem;">` : ''}
       <div class="card-name">${r.name}</div>
+      ${r.photourl ? `<img src="${r.photourl}" alt="${r.name}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin:0.5rem 0;">` : ''}
       <div class="card-actions">
         <button class="card-btn" onclick="event.stopPropagation();openEdit('${r.id}')">Edit</button>
         <button class="card-btn" onclick="event.stopPropagation();confirmDelete('${r.id}')">Delete</button>
@@ -902,8 +900,8 @@ function populateView(id) {
   const vs = document.getElementById('v-source');
   if (r.sourcetype === 'url' && r.source) vs.innerHTML = `<a href="${r.source}" target="_blank" rel="noopener">${r.source}</a>`;
   else vs.textContent = r.source || '';
-  if (r.photo) {
-    document.getElementById('v-photo').src = r.photo;
+  if (r.photourl) {
+    document.getElementById('v-photo').src = r.photourl;
     document.getElementById('v-photo-section').style.display = 'block';
   } else {
     document.getElementById('v-photo-section').style.display = 'none';
@@ -979,14 +977,14 @@ function openEdit(id) {
   document.getElementById('f-occasion').value = r.occasion || '';
   document.getElementById('f-source').value = r.source || '';
   srcType = r.sourcetype || 'other';
-  if (r.photo) {
-    currentFormPhoto = r.photo;
+  if (r.photourl) {
+    currentFormPhotoUrl = r.photourl;
     document.getElementById('f-photo-status').textContent = '✓ Photo ready';
   }
   document.getElementById('add-modal').classList.add('open');
 }
 
-let currentFormPhoto = null;
+let currentFormPhotoUrl = null;
 
 function handlePhotoUpload(e) {
   const file = e.target.files[0];
@@ -996,13 +994,39 @@ function handlePhotoUpload(e) {
     const img = new Image();
     img.onload = () => {
       compressAndEncode(img, (base64) => {
-        currentFormPhoto = base64;
-        document.getElementById('f-photo-status').textContent = '✓ Photo ready';
+        uploadPhotoToGoogleDrive(base64);
       });
     };
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function uploadPhotoToGoogleDrive(base64) {
+  document.getElementById('f-photo-status').textContent = 'Uploading to Drive...';
+  const recipeId = editingId || Date.now().toString();
+  fetch(API, {
+    method: 'POST',
+    body: new URLSearchParams({
+      action: 'uploadPhoto',
+      photo: base64,
+      recipeId: recipeId
+    })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) {
+      document.getElementById('f-photo-status').textContent = '✗ Upload failed';
+      showToast('Could not upload photo. ' + d.error, true);
+    } else {
+      currentFormPhotoUrl = d.photourl;
+      document.getElementById('f-photo-status').textContent = '✓ Photo ready';
+    }
+  })
+  .catch(err => {
+    document.getElementById('f-photo-status').textContent = '✗ Upload failed';
+    showToast('Photo upload error: ' + err.message, true);
+  });
 }
 
 function compressAndEncode(img, callback) {
@@ -1034,7 +1058,7 @@ function resetForm() {
   const first = document.querySelector('.src-btn[data-src="url"]');
   if (first) first.classList.add('active');
   document.getElementById('f-source').placeholder = 'https://...';
-  currentFormPhoto = null;
+  currentFormPhotoUrl = null;
   document.getElementById('f-photo-status').textContent = 'No photo';
   document.getElementById('f-photo-input').value = '';
 }
@@ -1065,14 +1089,12 @@ async function saveRecipe() {
     made: editingId ? (recipes.find(r => r.id === editingId)?.made || false) : false,
     staples: editingId ? (recipes.find(r => r.id === editingId)?.staples || false) : false,
     createdat: editingId ? (recipes.find(r => r.id === editingId)?.createdat || new Date().toISOString()) : new Date().toISOString(),
-    photo: currentFormPhoto || ''
+    photourl: currentFormPhotoUrl || (editingId ? (recipes.find(r => r.id === editingId)?.photourl || '') : '')
   };
 
   try {
     setStatus(editingId ? 'Updating recipe...' : 'Saving recipe...', false);
-    const recipeForSheet = { ...recipe };
-    delete recipeForSheet.photo;
-    await apiCall({ action: editingId ? 'updateRecipe' : 'saveRecipe', data: recipeForSheet });
+    await apiCall({ action: editingId ? 'updateRecipe' : 'saveRecipe', data: recipe });
     if (editingId) { const idx = recipes.findIndex(r => r.id === editingId); if (idx > -1) recipes[idx] = recipe; }
     else recipes.unshift(recipe);
     clearStatus(); closeAdd(); render();
