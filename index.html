@@ -1005,28 +1005,20 @@ function handlePhotoUpload(e) {
 function uploadPhotoToGoogleDrive(base64) {
   document.getElementById('f-photo-status').textContent = 'Uploading to Drive...';
   const recipeId = editingId || Date.now().toString();
-  fetch(API, {
-    method: 'POST',
-    body: new URLSearchParams({
-      action: 'uploadPhoto',
-      photo: base64,
-      recipeId: recipeId
+  apiCall({ action: 'uploadPhoto', photo: base64, recipeId: recipeId })
+    .then(d => {
+      if (d.error) {
+        document.getElementById('f-photo-status').textContent = '✗ Upload failed';
+        showToast('Could not upload photo. ' + d.error, true);
+      } else {
+        currentFormPhotoUrl = d.photourl;
+        document.getElementById('f-photo-status').textContent = '✓ Photo ready';
+      }
     })
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.error) {
+    .catch(err => {
       document.getElementById('f-photo-status').textContent = '✗ Upload failed';
-      showToast('Could not upload photo. ' + d.error, true);
-    } else {
-      currentFormPhotoUrl = d.photourl;
-      document.getElementById('f-photo-status').textContent = '✓ Photo ready';
-    }
-  })
-  .catch(err => {
-    document.getElementById('f-photo-status').textContent = '✗ Upload failed';
-    showToast('Photo upload error: ' + err.message, true);
-  });
+      showToast('Photo upload error: ' + err.message, true);
+    });
 }
 
 function compressAndEncode(img, callback) {
