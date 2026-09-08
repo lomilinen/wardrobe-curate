@@ -370,13 +370,8 @@
       <input type="text" id="f-source" placeholder="https://...">
     </div>
     <div class="form-group">
-      <label>Photo <span style="font-weight:300;text-transform:none;letter-spacing:0">(optional)</span></label>
-      <div style="display: flex; gap: 0.5rem; align-items: center;">
-        <input type="file" id="f-photo-input" accept="image/*" style="display: none;">
-        <button type="button" class="add-btn" style="font-size: 0.85rem;" onclick="document.getElementById('f-photo-input').click()">Upload Photo</button>
-        <span id="f-photo-status" style="font-size: 0.8rem; color: var(--text-dim);">No photo</span>
-      </div>
-      <canvas id="photo-canvas" style="display: none;"></canvas>
+      <label>Photo URL <span style="font-weight:300;text-transform:none;letter-spacing:0">(optional)</span></label>
+      <input type="text" id="f-photo-url" placeholder="Paste Google Drive photo link..." style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem;">
     </div>
     <div class="validation" id="validation"></div>
     <button class="submit-btn" id="submit-btn" onclick="saveRecipe()">Save recipe</button>
@@ -507,17 +502,6 @@ async function apiCall(params) {
     url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : v)
   );
   const r = await fetch(url);
-  return r.json();
-}
-
-async function uploadPhotoAPI(photoData, recipeId) {
-  const url = new URL(API);
-  url.searchParams.set('action', 'uploadPhoto');
-  const r = await fetch(url, {
-    method: 'POST',
-    body: JSON.stringify({ photo: photoData, recipeId: recipeId }),
-    headers: { 'Content-Type': 'application/json' }
-  });
   return r.json();
 }
 
@@ -990,61 +974,15 @@ function openEdit(id) {
   srcType = r.sourcetype || 'other';
   if (r.photourl) {
     currentFormPhotoUrl = r.photourl;
-    document.getElementById('f-photo-status').textContent = '✓ Photo ready';
+    document.getElementById('f-photo-url').value = r.photourl;
   }
   document.getElementById('add-modal').classList.add('open');
 }
 
 let currentFormPhotoUrl = null;
 
-function handlePhotoUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = new Image();
-    img.onload = () => {
-      compressAndEncode(img, (base64) => {
-        uploadPhotoToGoogleDrive(base64);
-      });
-    };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function uploadPhotoToGoogleDrive(base64) {
-  document.getElementById('f-photo-status').textContent = 'Uploading to Drive...';
-  const recipeId = editingId || Date.now().toString();
-  uploadPhotoAPI(base64, recipeId)
-    .then(d => {
-      if (d.error) {
-        document.getElementById('f-photo-status').textContent = '✗ Upload failed';
-        showToast('Could not upload photo. ' + d.error, true);
-      } else {
-        currentFormPhotoUrl = d.photourl;
-        document.getElementById('f-photo-status').textContent = '✓ Photo ready';
-      }
-    })
-    .catch(err => {
-      document.getElementById('f-photo-status').textContent = '✗ Upload failed';
-      showToast('Photo upload error: ' + err.message, true);
-    });
-}
-
-function compressAndEncode(img, callback) {
-  const canvas = document.getElementById('photo-canvas');
-  const ctx = canvas.getContext('2d');
-  let { width, height } = img;
-  const maxWidth = 400;
-  if (width > maxWidth) {
-    height = Math.round((height * maxWidth) / width);
-    width = maxWidth;
-  }
-  canvas.width = width;
-  canvas.height = height;
-  ctx.drawImage(img, 0, 0, width, height);
-  callback(canvas.toDataURL('image/jpeg', 0.8));
+function handlePhotoUrlChange() {
+  currentFormPhotoUrl = document.getElementById('f-photo-url').value.trim() || null;
 }
 
 function resetForm() {
@@ -1062,8 +1000,7 @@ function resetForm() {
   if (first) first.classList.add('active');
   document.getElementById('f-source').placeholder = 'https://...';
   currentFormPhotoUrl = null;
-  document.getElementById('f-photo-status').textContent = 'No photo';
-  document.getElementById('f-photo-input').value = '';
+  document.getElementById('f-photo-url').value = '';
 }
 
 async function saveRecipe() {
@@ -1195,7 +1132,7 @@ document.addEventListener('click', e => {
 
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('f-photo-input').addEventListener('change', handlePhotoUpload);
+  document.getElementById('f-photo-url').addEventListener('change', handlePhotoUrlChange);
 
   document.getElementById('season-drop-menu').addEventListener('click', e => {
     const opt = e.target.closest('[data-season]'); if (!opt) return;
